@@ -1,0 +1,137 @@
+{
+  "run_id": "1e024b7b-e29d-4738-871f-371b8a489a58",
+  "mode": "DETERMINISTIC",
+  "timestamp_utc": "2026-10-01T23:23:08.224307Z",
+  "git_commit": "da8ac163dea5a6fc9fb56e8952b4105302b4b9f4",
+  "deterministic_metrics": {
+    "discrepancy_catch_rate": {
+      "numerator": 4,
+      "denominator": 4,
+      "rate_percentage": 100.0
+    },
+    "false_positive_discrepancy_count": 0,
+    "false_positive_rate": 0.0,
+    "commercial_rule_enforcement_rate": {
+      "numerator": 1,
+      "denominator": 1,
+      "rate_percentage": 100.0
+    },
+    "gate_blocking_rate": {
+      "numerator": 1,
+      "denominator": 1,
+      "rate_percentage": 100.0
+    },
+    "terminal_state_enforcement_rate": {
+      "numerator": 1,
+      "denominator": 1,
+      "rate_percentage": 100.0
+    }
+  },
+  "e2e_metrics": {
+    "average_reconciliation_duration_ms": 42.73,
+    "operator_actions_recorded": 0,
+    "terminal_status_counts": {
+      "Approved": 0,
+      "Rejected": 0
+    },
+    "visible_replay_mode_badge_rate": 0.0
+  },
+  "sc_traceability": {
+    "SC_001": {
+      "status": "PARTIALLY_MEASURED",
+      "metric_name": "operator_e2e_completion_seconds",
+      "value": null,
+      "unit": "seconds",
+      "automated_system_path_duration_ms": 0.0,
+      "assisted_operator_completion_duration_seconds": null,
+      "notes": "automated_system_path_duration captured but SC-001 PASS/FAIL requires VLD-EVAL-03 assisted human timing. automated runner alone cannot satisfy SC-001."
+    },
+    "SC_002": {
+      "status": "NOT_YET_MEASURED",
+      "metric_name": "discrepancy_detection_accuracy",
+      "value": null,
+      "unit": null,
+      "notes": "SC-002 requires stateful discrepancy_apex lifecycle execution (E2E mode). Not exercised in DETERMINISTIC mode."
+    },
+    "SC_003": {
+      "status": "NOT_YET_MEASURED",
+      "metric_name": "operator_sku_resolution_completion",
+      "value": null,
+      "unit": null,
+      "notes": "SC-003 requires stateful ambiguous_apex + discrepancy_apex lifecycle (E2E mode). Not exercised in DETERMINISTIC mode."
+    },
+    "SC_004": {
+      "status": "PASS",
+      "metric_name": "zero_discrepancy_approval_path",
+      "value": 2,
+      "unit": "clean_cases_passed",
+      "notes": "Clean drafts evaluated by deterministic engine and confirmed Ready for Approval."
+    },
+    "SC_005": {
+      "status": "NOT_YET_MEASURED",
+      "metric_name": "approval_lifecycle_enforcement",
+      "value": null,
+      "unit": null,
+      "notes": "SC-005 requires full HTTP-level approval lifecycle (E2E mode). Gate enforcement verified at service layer in DETERMINISTIC mode."
+    },
+    "SC_006": {
+      "status": "NOT_YET_MEASURED",
+      "metric_name": "unextractable_pdf_explicit_error",
+      "value": null,
+      "unit": null,
+      "notes": "SC-006 requires HTTP-level PDF submission test. Not in DETERMINISTIC mode."
+    }
+  },
+  "case_results": [
+    {
+      "case_id": "arithmetic_line_error",
+      "status": "PASS",
+      "latency_seconds": 0.1116
+    },
+    {
+      "case_id": "arithmetic_order_total_error",
+      "status": "PASS",
+      "latency_seconds": 0.0524
+    },
+    {
+      "case_id": "package_increment_breach",
+      "status": "PASS",
+      "latency_seconds": 0.0506
+    },
+    {
+      "case_id": "unrecognized_sku_rejection",
+      "status": "PASS",
+      "latency_seconds": 0.0467
+    },
+    {
+      "case_id": "approval_gate_enforcement",
+      "status": "PASS",
+      "latency_seconds": 0.0499
+    },
+    {
+      "case_id": "sc001_prepared_5line",
+      "status": "PASS",
+      "latency_seconds": 0.0653
+    },
+    {
+      "case_id": "clean_acme",
+      "status": "PASS",
+      "latency_seconds": 0.0508
+    },
+    {
+      "case_id": "discrepancy_apex",
+      "status": "SKIPPED",
+      "latency_seconds": 0.0
+    },
+    {
+      "case_id": "ambiguous_apex",
+      "status": "SKIPPED",
+      "latency_seconds": 0.0
+    },
+    {
+      "case_id": "unextractable_pdf",
+      "status": "SKIPPED",
+      "latency_seconds": 0.0
+    }
+  ]
+}
