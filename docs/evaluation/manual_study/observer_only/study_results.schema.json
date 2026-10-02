@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "OrderShield Manual Baseline Study Results Schema",
-  "description": "Formal contract schema for human participant manual reconciliation baseline and SC-001 assisted study results (VLD-EVAL-03).",
+  "description": "Formal contract schema for human participant manual reconciliation baseline and SC-001 assisted study results (VLD-EVAL-03). Cognitive burden is not operationalized and is excluded from quantitative reporting.",
   "type": "object",
   "required": [
     "study_id",
@@ -61,7 +61,7 @@
     },
     "sessions": {
       "type": "array",
-      "description": "Session records per participant and case",
+      "description": "Session records per participant and case. Case A has 0 primary seeded discrepancies; Case B has 2 primary seeded discrepancies (Line 1 PriceMismatch, Line 2 Ambiguity); Case C has 1 primary seeded discrepancy (Line 1 Ambiguity).",
       "items": {
         "type": "object",
         "required": [
@@ -108,7 +108,8 @@
           },
           "expected_discrepancy_count": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Primary scored seeded discrepancy count: 0 for Case A, 2 for Case B, 1 for Case C"
           },
           "correctly_identified_discrepancy_count": {
             "type": "integer",
@@ -135,6 +136,10 @@
           "incorrect_sku_assignment_count": {
             "type": "integer",
             "minimum": 0
+          },
+          "secondary_latent_moq_observed": {
+            "type": ["boolean", "null"],
+            "description": "Documentary observation: whether participant noted latent MOQ breach upon considering SKU options in Case B; not scored as a miss"
           },
           "procedural_deviations": {
             "type": ["string", "null"]
@@ -171,7 +176,12 @@
           "items": { "type": "number", "minimum": 0.0 }
         },
         "median_total_duration_seconds": { "type": "number", "minimum": 0.0 },
-        "total_seeded_discrepancies": { "type": "integer", "minimum": 0 },
+        "total_seeded_discrepancies": {
+          "type": "integer",
+          "minimum": 6,
+          "maximum": 9,
+          "description": "Total primary seeded discrepancies across cohort: exactly 3 * sample_size (6 for N=2, 9 for N=3)"
+        },
         "total_caught_discrepancies": { "type": "integer", "minimum": 0 },
         "overall_catch_rate_percentage": { "type": "number", "minimum": 0.0, "maximum": 100.0 },
         "total_errors": { "type": "integer", "minimum": 0 }
@@ -245,7 +255,11 @@
         },
         "median_duration_seconds": { "type": "number", "minimum": 0.0 },
         "total_errors": { "type": "integer", "minimum": 0 },
-        "seeded_discrepancies_total": { "type": "integer", "minimum": 0 },
+        "seeded_discrepancies_total": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total primary seeded discrepancies for this case across cohort: 0*N for Case A, 2*N for Case B, 1*N for Case C"
+        },
         "caught_discrepancies_total": { "type": "integer", "minimum": 0 },
         "catch_rate_percentage": { "type": ["number", "null"], "minimum": 0.0, "maximum": 100.0 }
       },

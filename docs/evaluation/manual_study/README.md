@@ -12,7 +12,7 @@
 
 This packet prepares the experimental and operational materials required to execute the approved **Manual Baseline Study Protocol** ([`docs/evaluation/protocol.md`](../protocol.md) §5).
 
-The manual baseline study measures human operator velocity, cognitive workload, and error rates when reconciling wholesale purchase orders without automated software. These empirical measurements will serve as the auditable point of comparison against OrderShield's automated and assisted processing under Success Criteria **SC-001**, **SC-002**, and **SC-003**.
+The manual baseline study measures human operator velocity and objective error rates when reconciling wholesale purchase orders without automated software. These empirical measurements will serve as the auditable point of comparison against OrderShield's automated and assisted processing under Success Criteria **SC-001**, **SC-002**, and **SC-003**.
 
 > [!IMPORTANT]
 > **Study Preparation Phase Only (`VLD-EVAL-03A`)**:
@@ -24,18 +24,35 @@ The manual baseline study measures human operator velocity, cognitive workload, 
 
 ---
 
-## 2. Packet Artifacts Directory
+## 2. Directory Structure & Distribution Safety
 
-The study packet comprises the following canonical files:
+To strictly prevent accidental answer leakage, materials are isolated into dedicated participant and observer directories.
 
-| Artifact | Audience | Description | Answer Leakage Status |
-| :--- | :--- | :--- | :--- |
-| [`participant_instructions.md`](./participant_instructions.md) | Participant | Step-by-step instructions, allowed/prohibited tools, and timing rules. | **Clean** (No expected answers or hints) |
-| [`catalog_sheet.md`](./catalog_sheet.md) | Participant | Product Master Catalog listing active SKUs, names, UOM, base prices, MOQs, and package increments. | **Clean** (Master catalog only) |
-| [`contract_pricing_sheet.md`](./contract_pricing_sheet.md) | Participant | Customer contract agreements, authorized SKUs, and volume discount tier pricing. | **Clean** (Master contracts only) |
-| [`reconciliation_template.md`](./reconciliation_template.md) | Participant | Blank operational form for line-by-line reconciliation, totals verification, and approval/rejection declaration. | **Clean** (Empty template form) |
-| [`observer_recording_template.md`](./observer_recording_template.md) | Observer Only | Ground-truth reference sheet, timing capture, objective error classification, deterministic aggregation plan, SC-001 assisted run section, and operator contamination logs. | **Confidential** (Contains ground truth keys) |
-| [`study_results.schema.json`](./study_results.schema.json) | Automation / Audit | Formal JSON Schema (draft-07) validating structured output of participant sessions, aggregations, and assisted runs. | **Machine-Readable Contract** |
+```
+docs/evaluation/manual_study/
+├── README.md
+├── participant_packet/
+│   ├── participant_instructions.md
+│   ├── catalog_sheet.md
+│   ├── contract_pricing_sheet.md
+│   └── reconciliation_template.md
+└── observer_only/
+    ├── observer_recording_template.md
+    └── study_results.schema.json
+```
+
+### Strict Distribution Safety Rule
+> [!CAUTION]
+> **NEVER give participants access to the entire repository or the root `docs/evaluation/manual_study/` directory.**
+>
+> Participant distribution packages must contain **ONLY**:
+> 1. [`participant_packet/participant_instructions.md`](./participant_packet/participant_instructions.md)
+> 2. [`participant_packet/catalog_sheet.md`](./participant_packet/catalog_sheet.md)
+> 3. [`participant_packet/contract_pricing_sheet.md`](./participant_packet/contract_pricing_sheet.md)
+> 4. [`participant_packet/reconciliation_template.md`](./participant_packet/reconciliation_template.md)
+> 5. The single purchase order file currently being executed (Case A, then Case B, then Case C).
+>
+> All materials under [`observer_only/`](./observer_only/) containing ground-truth answers, discrepancy keys, and scoring criteria must remain strictly confidential and inaccessible to participants.
 
 ---
 
@@ -48,10 +65,10 @@ Participants will evaluate exactly the three approved study cases in the specifi
    - Standardized velocity benchmark fixture for SC-001.
 2. **Case B**: [`tests/fixtures/po_discrepancy_apex.txt`](../../../tests/fixtures/po_discrepancy_apex.txt)
    - Stateful 2-line purchase order for Apex Distribution (`CUST-APEX`).
-   - Contains price discrepancy, ambiguous catalog description, and latent MOQ violation.
+   - Evaluates price mismatch, catalog description ambiguity, and stateful latent rules.
 3. **Case C**: [`tests/fixtures/po_ambiguous_apex.txt`](../../../tests/fixtures/po_ambiguous_apex.txt)
    - 1-line purchase order for Apex Distribution (`CUST-APEX`).
-   - Contains an ambiguous product description requiring clarification routing.
+   - Evaluates ambiguous description routing to customer clarification.
 
 *Note: No alternative, simplified, or substituted cases may be used.*
 
@@ -90,16 +107,32 @@ Participants will evaluate exactly the three approved study cases in the specifi
 
 ---
 
-## 6. Objective Error Scoring
+## 6. Manual Baseline Error Scoring & Case B Reconciliation
 
-Observer scoring is strictly objective and based on the approved error classifications:
+Scoring is strictly objective and based on the approved error classifications:
 1. **Missed Price Mismatch**: Fails to flag when requested unit price differs from contract tier price.
 2. **Missed MOQ Violation**: Fails to flag when requested quantity is below catalog MOQ.
 3. **Missed Package Violation**: Fails to flag when quantity violates packaging increment.
 4. **Missed Arithmetic Error**: Fails to flag discrepancy between `qty * price` and stated line total.
 5. **Incorrect SKU Assignment**: Assigns an arbitrary SKU to an ambiguous description instead of routing for customer clarification.
 
-*Subjective scoring is prohibited.*
+### Case-by-Case Scored Discrepancies
+- **Case A**: **0** scored discrepancies.
+- **Case B**: **2 primary scored discrepancies**:
+  1. `PriceMismatch` (Line 1): Requested $18.00 vs contracted tier price $22.00.
+  2. `Catalog ambiguity / Needs clarification` (Line 2): `"Standard pallet wrap"` matches multiple catalog SKUs (`SKU-WRAP-15` vs `SKU-WRAP-18`).
+- **Case C**: **1 primary scored discrepancy**:
+  1. `Catalog ambiguity / Needs clarification` (Line 1): `"Standard pallet wrap"` matches multiple catalog SKUs.
+
+### Case B Latent MOQ Semantics in Manual Study
+In accordance with accepted stateful domain semantics (ADR 0001 and manifest stateful lifecycle), the packaging/MOQ rule on Line 2 of Case B is **latent** until SKU resolution. Because participant instructions correctly require marking an ambiguous SKU as "Needs clarification" rather than guessing, a participant who marks "Needs clarification" has performed the correct manual action.
+- Latent MOQ is retained as a **documented secondary stateful observation** in the observer notes.
+- Latent MOQ is **NOT** counted as a participant miss when the participant correctly refuses to choose an ambiguous SKU.
+- Latent MOQ is **NOT** included in the primary manual catch-rate denominator.
+
+### Quantitative Measurement Scope & Cognitive Burden Clarification
+- **Quantitative Metrics**: Only duration (seconds) and objective reconciliation errors (error classification counts) are quantitatively measured.
+- **Cognitive Burden Clarification**: While protocol §5.1 conceptually references operator cognitive burden, no objective psychological or workload measurement instrument (such as NASA-TLX or validated survey instrument) was operationalized in the protocol. To maintain scientific integrity, **cognitive burden is NOT operationalized in this study and must NOT be reported as a measured quantitative result.** No subjective scoring or invented scales are permitted.
 
 ---
 
@@ -110,12 +143,17 @@ Before collecting any data, the aggregation methodology is pre-committed:
 ### Per-Case Aggregation
 - **Durations**: Collect $[d_1, d_2, \dots, d_N]$ and calculate the median ($p50$).
 - **Error Count**: Sum of all missed discrepancies and incorrect SKU assignments across the cohort.
-- **Catch Rate**: $\frac{\sum \text{Correctly Identified Discrepancies}}{N \times \text{Seeded Discrepancies}} \times 100\%$.
+- **Catch Rate**:
+  - Case A (0 seeded): Catch rate N/A; report false positive count.
+  - Case B (2 seeded): $\frac{\sum \text{Correctly Identified}}{2N} \times 100\%$.
+  - Case C (1 seeded): $\frac{\sum \text{Correctly Identified}}{1N} \times 100\%$.
 
 ### Overall Manual Batch Aggregation
 - **Total Duration per Participant**: $T_i = d_{A,i} + d_{B,i} + d_{C,i}$.
 - **Median Total Batch Duration**: $\text{median}([T_1, \dots, T_N])$.
-- **Batch Catch Rate**: $\frac{\sum \text{Total Caught}}{4N} \times 100\%$.
+- **Primary Total Seeded Denominator**: **3 per participant** ($0 + 2 + 1 = 3$), yielding **$3N$ across the batch** ($N=2 \implies 6$; $N=3 \implies 9$).
+- **Batch Discrepancy Catch Rate**:
+  $$\text{Batch Catch Rate} = \frac{\sum_{i=1}^N \text{Total Caught}_i}{3N} \times 100\%$$
 - **Explicit Sample Size**: Reported explicitly as $N=2$ or $N=3$.
 
 ### Scientific Integrity & Claims Constraints
@@ -127,7 +165,7 @@ Before collecting any data, the aggregation methodology is pre-committed:
 
 ## 8. SC-001 Assisted OrderShield Run Protocol
 
-A dedicated section of [`observer_recording_template.md`](./observer_recording_template.md) prepares the assisted OrderShield timing measurement:
+A dedicated section of [`observer_recording_template.md`](./observer_only/observer_recording_template.md) prepares the assisted OrderShield timing measurement:
 - **Canonical Fixture**: `docs/evaluation/fixtures/sc001_prepared_5line_po.txt`
 - **Timer Start**: Operator initiates submission of the prepared 5-line PO in the OrderShield UI.
 - **Timer Stop**: Approval is completed and the `Verified Order` result is visibly returned.
