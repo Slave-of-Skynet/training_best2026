@@ -36,8 +36,14 @@ docs/evaluation/manual_study/
 │   ├── catalog_sheet.md
 │   ├── contract_pricing_sheet.md
 │   └── reconciliation_template.md
+├── participant_packet_ru/
+│   ├── participant_instructions_ru.md
+│   ├── catalog_sheet_ru.md
+│   ├── contract_pricing_sheet_ru.md
+│   └── reconciliation_template_ru.md
 └── observer_only/
     ├── observer_recording_template.md
+    ├── observer_execution_checklist_ru.md
     └── study_results.schema.json
 ```
 
@@ -46,13 +52,11 @@ docs/evaluation/manual_study/
 > **NEVER give participants access to the entire repository or the root `docs/evaluation/manual_study/` directory.**
 >
 > Participant distribution packages must contain **ONLY**:
-> 1. [`participant_packet/participant_instructions.md`](./participant_packet/participant_instructions.md)
-> 2. [`participant_packet/catalog_sheet.md`](./participant_packet/catalog_sheet.md)
-> 3. [`participant_packet/contract_pricing_sheet.md`](./participant_packet/contract_pricing_sheet.md)
-> 4. [`participant_packet/reconciliation_template.md`](./participant_packet/reconciliation_template.md)
-> 5. The single purchase order file currently being executed (Case A, then Case B, then Case C).
+> 1. English execution: Files from [`participant_packet/`](./participant_packet/) (`participant_instructions.md`, `catalog_sheet.md`, `contract_pricing_sheet.md`, `reconciliation_template.md`).
+> 2. Russian-speaking execution: Distribute **ONLY** files from [`participant_packet_ru/`](./participant_packet_ru/) (`participant_instructions_ru.md`, `catalog_sheet_ru.md`, `contract_pricing_sheet_ru.md`, `reconciliation_template_ru.md`). Do not distribute `participant_packet` and `participant_packet_ru` together unless explicitly needed.
+> 3. The single purchase order text file currently being executed (Case A, then Case B, then Case C).
 >
-> All materials under [`observer_only/`](./observer_only/) containing ground-truth answers, discrepancy keys, and scoring criteria must remain strictly confidential and inaccessible to participants.
+> All materials under [`observer_only/`](./observer_only/) containing ground-truth answers, discrepancy keys, scoring criteria, and observer checklists must remain strictly confidential and inaccessible to participants.
 
 ---
 
