@@ -1,10 +1,13 @@
 # Manual Baseline Study Packet & Measurement Preparation (VLD-EVAL-03A)
 
-- **Status**: **PREPARATION READY (Awaiting Human Gate HG-EVAL-03A Approval)**
+- **Status**: **MANUAL BASELINE EXECUTION AUTHORIZED**
+- **Human Gates**:
+  - `HG-EVAL-01` = **APPROVED**
+  - `HG-EVAL-03A` = **APPROVED**
+  - `HG-EVAL-03A-RU` = **APPROVED**
 - **Protocol Reference**: [`docs/evaluation/protocol.md`](../protocol.md) (§5)
 - **Ground Truth Manifest**: [`docs/evaluation/ground_truth_manifest.json`](../ground_truth_manifest.json)
 - **Base Commit**: `1c454bb9f787ec3440e6a4a3d47d71d4462b0454`
-- **Prior Gate**: `HG-EVAL-01` = **APPROVED** | `VLD-EVAL-02R3` = **MERGED**
 
 ---
 
@@ -15,12 +18,19 @@ This packet prepares the experimental and operational materials required to exec
 The manual baseline study measures human operator velocity and objective error rates when reconciling wholesale purchase orders without automated software. These empirical measurements will serve as the auditable point of comparison against OrderShield's automated and assisted processing under Success Criteria **SC-001**, **SC-002**, and **SC-003**.
 
 > [!IMPORTANT]
-> **Study Preparation Phase Only (`VLD-EVAL-03A`)**:
-> - **Zero Participant Results Fabricated**: No synthetic, estimated, or fictitious participant measurements are recorded in this packet.
-> - **Zero Participant Execution Conducted**: Participant runs will occur only after explicit review and approval at Human Gate **HG-EVAL-03A**.
-> - **Zero Application/Runtime Changes**: Application code, domain logic, and API behavior remain untouched.
-> - **Zero Marketing Claims Updated**: Top-level `README.md` claims remain strictly unchanged until empirical results are committed.
-> - **Zero LIVE Calls**: No external network or live LLM provider invocations are made.
+> **Execution Scope**:
+>
+> **AUTHORIZED**:
+> - Manual baseline participant runs in canonical order: **Case A $\to$ Case B $\to$ Case C**;
+> - Russian participant packet ([`participant_packet_ru/`](./participant_packet_ru/)) and English packet ([`participant_packet/`](./participant_packet/));
+> - Neutral purchase order display filenames (`Заказ_A.txt`, `Заказ_B.txt`, `Заказ_C.txt`);
+> - Collection of raw participant timing and reconciliation answers.
+>
+> **STILL NOT AUTHORIZED**:
+> - SC-001 assisted OrderShield run (remains pending canonical 5-line intake path decision);
+> - LIVE evaluation provider calls;
+> - Top-level README marketing/performance claims updates;
+> - Fabricated or inferred participant data.
 
 ---
 
@@ -189,11 +199,13 @@ To protect measurement validity:
 
 ---
 
-## 10. Human Gate Stop Condition
+## 10. Execution Governance & Scope Gates
 
-**STOP AT**: **`HG-EVAL-03A — STUDY PACKET READY`**
+**Status**: **`MANUAL BASELINE EXECUTION AUTHORIZED`**
 
-- This packet is complete and ready for human audit.
-- Do **NOT** begin participant measurement until Project Brain formally approves the packet.
-- Do **NOT** update top-level README claims.
-- Do **NOT** execute LIVE evaluation modes.
+- **Human Gate HG-EVAL-03A**: **APPROVED** (English study packet and measurement methodology).
+- **Human Gate HG-EVAL-03A-RU**: **APPROVED** (Russian participant localization, neutral case naming, and observer operational checklist).
+- Manual participant execution across Cases A, B, and C may proceed following the procedures in [`observer_execution_checklist_ru.md`](./observer_only/observer_execution_checklist_ru.md).
+- SC-001 assisted OrderShield measurement remains blocked pending canonical 5-line intake path decision.
+- LIVE evaluation modes remain disabled.
+- Top-level marketing/performance claims remain strictly locked until empirical results are committed and reviewed.
