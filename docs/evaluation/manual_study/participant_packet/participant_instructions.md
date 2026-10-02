@@ -50,21 +50,25 @@ Open the purchase order text file and note the customer name, account ID, and pu
 
 ### Step 2: Line-by-Line Verification
 For each line item listed on the purchase order:
-1. **Catalog Matching**:
+1. **Catalog Matching & SKU Uniqueness**:
    - Compare the customer description against the **Product Master Catalog Sheet** (`catalog_sheet.md`).
-   - If the item matches an authorized product title, record the matched SKU.
-   - If the item description is vague, matches multiple distinct products, or cannot be found, record **"Needs clarification"**.
-2. **Packaging & Minimum Order Quantity (MOQ)**:
-   - Check if the requested quantity meets or exceeds the product's Minimum Order Quantity (`quantity >= MOQ`).
-   - Check if the requested quantity is an exact multiple of the product's Package Increment (`quantity % package_increment == 0`).
-3. **Contract Pricing Verification**:
-   - Open the **Customer Contract Pricing Sheet** (`contract_pricing_sheet.md`) and locate the section for the customer account.
-   - Find the authorized SKU and apply the volume tier rule: select the tier with the maximum `min_quantity` such that `min_quantity <= ordered_quantity`.
-   - Verify whether the unit price stated on the purchase order matches the authoritative contract unit price.
-4. **Line Arithmetic**:
-   - Compute `quantity * verified unit price` and verify whether it matches the stated line total.
-5. **Discrepancy Identification**:
-   - If any discrepancy is detected (price mismatch, MOQ violation, packaging increment breach, arithmetic error, or ambiguous catalog item), record it clearly in the row's Discrepancy column.
+   - A partial product-name overlap is **not** sufficient for a confident SKU match when the customer description omits distinguishing catalog attributes such as size, gauge, material, package form, or other attributes needed to uniquely distinguish catalog products.
+   - You may assign a SKU **only** when the supplied customer description uniquely identifies one catalog item from the available information.
+   - If more than one catalog product remains reasonably compatible, or required distinguishing attributes are missing, record **"Needs clarification"**.
+2. **Packaging & Contract Verification (Only if SKU is Determinate)**:
+   - **If the SKU is determinate (uniquely resolved)**:
+     - Check if the requested quantity meets or exceeds the product's Minimum Order Quantity (`quantity >= MOQ`).
+     - Check if the requested quantity is an exact multiple of the product's Package Increment (`quantity % package_increment == 0`).
+     - Open the **Customer Contract Pricing Sheet** (`contract_pricing_sheet.md`) and locate the section for the customer account.
+     - Find the authorized SKU and apply the volume tier rule: select the tier with the maximum `min_quantity` such that `min_quantity <= ordered_quantity`.
+     - Verify whether the unit price stated on the purchase order matches the authoritative contract unit price.
+     - Compute `quantity * verified unit price` and verify whether it matches the stated line total.
+   - **If the SKU is ambiguous (unresolved / "Needs clarification")**:
+     - Mark **"Needs clarification"** in the Matched SKU column and record a catalog matching discrepancy.
+     - Do **not** guess or arbitrarily choose a SKU.
+     - Optional observations about rules common to all candidate products may be noted in the Notes column, but are not required.
+3. **Discrepancy Identification**:
+   - If any discrepancy is detected (price mismatch, MOQ violation, packaging increment breach, arithmetic error, or ambiguous catalog item requiring clarification), record it clearly in the row's Discrepancy column.
 
 ### Step 3: Order Totals & Subtotals
 - Calculate the sum of all line totals.
