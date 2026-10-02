@@ -1,4 +1,4 @@
-"""OrderShield Reproducible Evaluation Runner — VLD-EVAL-02 / VLD-EVAL-02R2.
+"""OrderShield Reproducible Evaluation Runner — VLD-EVAL-02 / VLD-EVAL-02R3.
 
 Implements:
     python -m app.cli evaluate --mode=<MODE>
@@ -20,11 +20,13 @@ Modes:
                          accepted 5-line replay asset exists; clean_acme is diagnostic).
                          SC-002: PASS (current app E2E stateful lifecycle).
                          SC-003: PARTIALLY_MEASURED (ambiguous_apex alone does not
-                         satisfy full trap corpus AI-5/AI-6 criteria).
+                         satisfy full trap corpus criteria).
                          SC-004: PASS (provenance verified against raw source text).
-                         SC-005: PASS (DET-4 gate blocking + DET-5 terminal immutability).
-                         SC-006: PARTIALLY_MEASURED (offline components verified; live
-                         latency/timeout components require live environment).
+                         SC-005: PASS (DET-4 gate blocking + DET-5 terminal immutability
+                         verified on distinct Approved and Rejected draft IDs).
+                         SC-006: PARTIALLY_MEASURED (unreadable document HTTP 400 with
+                         verified zero provider invocations and zero persistence;
+                         live latency/timeout components require live environment).
 
     HISTORICAL_BAKEOFF   Zero-network: historical spikes/ordershield/** evidence only.
                          Primary provider: Alibaba Model Studio / Qwen (ADR 0001).
@@ -36,13 +38,14 @@ Modes:
     LIVE                 Network: calls actual AI provider. Gated by
                          LIVE_EVALUATION_ENABLED=true. Not run automatically.
                          Exact runtime provider/model recorded from settings.
+                         automated_system_path_duration_ms remains null.
 
     ALL                  DETERMINISTIC + REPLAY + HISTORICAL_BAKEOFF.
                          LIVE only if explicitly enabled.
                          FAIL > PASS > PARTIALLY_MEASURED > NOT_YET_MEASURED.
                          Equal-status merge preserves richer evidence.
-                         SC-003 combines historical AI-boundary and current-app
-                         reconciliation with explicit attribution.
+                         SC-003 computed dynamically from actual evidence
+                         (AI-5 review routing + AI-6 wrong-confident + app lifecycle).
 
 Invariants:
     - SC-001 is always PARTIALLY_MEASURED in automated runs (never PASS).
@@ -692,7 +695,6 @@ def run_deterministic(manifest: dict[str, Any], verbose: bool = False) -> dict[s
         )
         override_blocked = False
         try:
-            # Attempt to set ungrounded price override
             correct_line_field(
                 session, draft, draft.line_items[0],
                 field="extracted_unit_price", value=1999,
@@ -727,7 +729,6 @@ def run_deterministic(manifest: dict[str, Any], verbose: bool = False) -> dict[s
     # -----------------------------------------------------------------------
     # 4. Service-layer Gate & Terminal State
     # -----------------------------------------------------------------------
-    # Gate blocking (service layer)
     session = _make_in_memory_session()
     try:
         draft = _build_single_line_draft(
@@ -748,7 +749,6 @@ def run_deterministic(manifest: dict[str, Any], verbose: bool = False) -> dict[s
     finally:
         session.close()
 
-    # Terminal state (service layer)
     session = _make_in_memory_session()
     try:
         draft = _build_single_line_draft(
@@ -799,7 +799,6 @@ def run_deterministic(manifest: dict[str, Any], verbose: bool = False) -> dict[s
         "visible_replay_mode_badge_rate": 0.0,
     }
 
-    # SC-002: PASS only when detected == seeded (5/5), each strictly verified
     sc002_status = "PASS" if disc_detected == disc_seeded else "FAIL"
 
     sc_traceability = {
@@ -871,6 +870,11 @@ def run_replay(manifest: dict[str, Any], verbose: bool = False) -> dict[str, Any
     terminal_rejected = 0
     operator_actions = 0
 
+    discrepancy_draft_id: str | None = None
+    discrepancy_line_id: str | None = None
+    approved_draft_id: str | None = None
+    approved_line_id: str | None = None
+
     try:
         from app.models.entities import OrderDraft, VerifiedOrderRecord
 
@@ -880,15 +884,15 @@ def run_replay(manifest: dict[str, Any], verbose: bool = False) -> dict[str, Any
         t0 = time.perf_counter()
         resp = client.post("/api/v1/fixtures/fixture-clean-acme/ingest")
         if resp.status_code == 201:
-            draft = resp.json()
-            draft_id = draft["draft_id"]
+            clean_draft = resp.json()
+            c_draft_id = clean_draft["draft_id"]
             replay_badge_total += 1
-            if draft.get("is_replay_mode") is True:
+            if clean_draft.get("is_replay_mode") is True:
                 replay_badge_count += 1
 
             clean_acme_duration_ms = (time.perf_counter() - t0) * 1000
 
-            get_resp = client.get(f"/api/v1/drafts/{draft_id}")
+            get_resp = client.get(f"/api/v1/drafts/{c_draft_id}")
             get_draft = get_resp.json() if get_resp.status_code == 200 else {}
             initial_status = get_draft.get("status")
 
@@ -910,7 +914,6 @@ def run_replay(manifest: dict[str, Any], verbose: bool = False) -> dict[str, Any
                     pv = field_prov.get(f_name)
 
                     if field_val is not None:
-                        # Non-null field: snippet non-empty, exact substring in source, offset resolves
                         if pv is not None:
                             snip = pv.get("verbatim_snippet")
                             loc = pv.get("location", {}) or {}
@@ -924,7 +927,6 @@ def run_replay(manifest: dict[str, Any], verbose: bool = False) -> dict[str, Any
                                             and src_line[char_off:char_off + len(snip)] == snip):
                                         prov_valid += 1
                     else:
-                        # Null field per AI-3: snippet must be null or empty
                         if pv is None or not pv.get("verbatim_snippet"):
                             prov_valid += 1
 
@@ -932,10 +934,14 @@ def run_replay(manifest: dict[str, Any], verbose: bool = False) -> dict[str, Any
             sc004_status = "PASS" if (prov_valid == prov_expected and prov_expected > 0) else "FAIL"
 
             approve_resp = client.post(
-                f"/api/v1/drafts/{draft_id}/approve",
+                f"/api/v1/drafts/{c_draft_id}/approve",
                 json={"operator_id": "eval-runner"},
             )
-            clean_approved = approve_resp.status_code == 200
+            clean_approved = (
+                approve_resp.status_code == 200
+                and "order_id" in approve_resp.json()
+                and client.get(f"/api/v1/drafts/{c_draft_id}").json().get("status") == "Approved"
+            )
             if clean_approved:
                 terminal_approved += 1
                 operator_actions += 1
@@ -947,7 +953,7 @@ def run_replay(manifest: dict[str, Any], verbose: bool = False) -> dict[str, Any
                 "latency_seconds": round(clean_acme_duration_ms / 1000, 4),
                 "details": {
                     "initial_status": initial_status,
-                    "is_replay_mode": draft.get("is_replay_mode"),
+                    "is_replay_mode": clean_draft.get("is_replay_mode"),
                     "provenance_valid": f"{prov_valid}/{prov_expected} ({prov_rate}%)",
                     "approved": clean_approved,
                     "clean_acme_reconciliation_duration_ms": round(clean_acme_duration_ms, 2),
@@ -965,14 +971,15 @@ def run_replay(manifest: dict[str, Any], verbose: bool = False) -> dict[str, Any
         t0 = time.perf_counter()
         resp = client.post("/api/v1/fixtures/fixture-discrepancy-apex/ingest")
         if resp.status_code == 201:
-            draft = resp.json()
-            draft_id = draft["draft_id"]
+            disc_draft = resp.json()
+            discrepancy_draft_id = disc_draft["draft_id"]
             replay_badge_total += 1
-            if draft.get("is_replay_mode") is True:
+            if disc_draft.get("is_replay_mode") is True:
                 replay_badge_count += 1
 
-            # State A: verify exact seeded discrepancies
-            state_a_lines = draft.get("line_items", [])
+            state_a_lines = disc_draft.get("line_items", [])
+            discrepancy_line_id = state_a_lines[1]["line_id"] if len(state_a_lines) > 1 else state_a_lines[0]["line_id"]
+
             l1_flags = state_a_lines[0].get("discrepancies", []) if len(state_a_lines) > 0 else []
             l2_flags = state_a_lines[1].get("discrepancies", []) if len(state_a_lines) > 1 else []
 
@@ -983,16 +990,16 @@ def run_replay(manifest: dict[str, Any], verbose: bool = False) -> dict[str, Any
                              and l1_unres[0].get("severity") == "Blocking")
             state_a_l2_ok = (len(l2_unres) == 1 and l2_unres[0].get("discrepancy_type") == "CatalogMatchingMismatch"
                              and l2_unres[0].get("severity") == "Blocking")
-            state_a_ok = (draft.get("status") == "Needs Review" and state_a_l1_ok and state_a_l2_ok)
+            state_a_ok = (disc_draft.get("status") == "Needs Review" and state_a_l1_ok and state_a_l2_ok)
 
             # DET-4: Gate blocking on Needs Review draft
             vorders_before = session.query(VerifiedOrderRecord).count()
             det4_resp = client.post(
-                f"/api/v1/drafts/{draft_id}/approve",
+                f"/api/v1/drafts/{discrepancy_draft_id}/approve",
                 json={"operator_id": "eval-runner"},
             )
             vorders_after = session.query(VerifiedOrderRecord).count()
-            status_after_resp = client.get(f"/api/v1/drafts/{draft_id}")
+            status_after_resp = client.get(f"/api/v1/drafts/{discrepancy_draft_id}")
             draft_still_needs_review = status_after_resp.json().get("status") == "Needs Review"
 
             det4_ok = (
@@ -1006,7 +1013,7 @@ def run_replay(manifest: dict[str, Any], verbose: bool = False) -> dict[str, Any
             # State B: SelectSKU on line 2
             line2_id = state_a_lines[1]["line_id"]
             patch_resp = client.patch(
-                f"/api/v1/drafts/{draft_id}/lines/{line2_id}",
+                f"/api/v1/drafts/{discrepancy_draft_id}/lines/{line2_id}",
                 json={"action": "SelectSKU", "matched_sku": "SKU-WRAP-15"},
             )
             operator_actions += 1
@@ -1031,7 +1038,7 @@ def run_replay(manifest: dict[str, Any], verbose: bool = False) -> dict[str, Any
 
             # State C: Rejection
             reject_resp = client.post(
-                f"/api/v1/drafts/{draft_id}/reject",
+                f"/api/v1/drafts/{discrepancy_draft_id}/reject",
                 json={"operator_id": "eval-runner", "reason": "Non-compliant price and MOQ breach"},
             )
             operator_actions += 1
@@ -1046,6 +1053,7 @@ def run_replay(manifest: dict[str, Any], verbose: bool = False) -> dict[str, Any
                 "status": "PASS" if sc002_e2e_ok else "FAIL",
                 "latency_seconds": round(time.perf_counter() - t0, 4),
                 "details": {
+                    "discrepancy_draft_id": discrepancy_draft_id,
                     "state_a_verified": state_a_ok,
                     "state_b_verified": state_b_ok,
                     "state_c_verified": state_c_ok,
@@ -1060,26 +1068,27 @@ def run_replay(manifest: dict[str, Any], verbose: bool = False) -> dict[str, Any
             print(f"  [REPLAY] discrepancy_apex: {case_results[-1]['status']}")
 
         # -----------------------------------------------------------------------
-        # ambiguous_apex — State A $\to$ B $\to$ C, then DET-5 Terminal Immutability
+        # ambiguous_apex — State A $\to$ B $\to$ C
         # -----------------------------------------------------------------------
         t0 = time.perf_counter()
         resp = client.post("/api/v1/fixtures/fixture-ambiguous-apex/ingest")
         if resp.status_code == 201:
-            draft = resp.json()
-            draft_id = draft["draft_id"]
+            amb_draft = resp.json()
+            approved_draft_id = amb_draft["draft_id"]
             replay_badge_total += 1
-            if draft.get("is_replay_mode") is True:
+            if amb_draft.get("is_replay_mode") is True:
                 replay_badge_count += 1
 
-            state_a_lines = draft.get("line_items", [])
+            state_a_lines = amb_draft.get("line_items", [])
+            approved_line_id = state_a_lines[0]["line_id"]
+
             l1_unres = [f for f in state_a_lines[0].get("discrepancies", []) if f.get("resolution_state") == "Unresolved"]
-            amb_a_ok = (draft.get("status") == "Needs Review"
+            amb_a_ok = (amb_draft.get("status") == "Needs Review"
                         and len(l1_unres) == 1
                         and l1_unres[0].get("discrepancy_type") == "CatalogMatchingMismatch")
 
-            line1_id = state_a_lines[0]["line_id"]
             patch_resp = client.patch(
-                f"/api/v1/drafts/{draft_id}/lines/{line1_id}",
+                f"/api/v1/drafts/{approved_draft_id}/lines/{approved_line_id}",
                 json={"action": "SelectSKU", "matched_sku": "SKU-WRAP-15"},
             )
             operator_actions += 1
@@ -1088,14 +1097,14 @@ def run_replay(manifest: dict[str, Any], verbose: bool = False) -> dict[str, Any
                         and patch_resp.json().get("status") == "Ready for Approval")
 
             approve_resp = client.post(
-                f"/api/v1/drafts/{draft_id}/approve",
+                f"/api/v1/drafts/{approved_draft_id}/approve",
                 json={"operator_id": "eval-runner"},
             )
             operator_actions += 1
             amb_c_ok = (
                 approve_resp.status_code == 200
                 and "order_id" in approve_resp.json()
-                and client.get(f"/api/v1/drafts/{draft_id}").json().get("status") == "Approved"
+                and client.get(f"/api/v1/drafts/{approved_draft_id}").json().get("status") == "Approved"
             )
             if amb_c_ok:
                 terminal_approved += 1
@@ -1106,6 +1115,7 @@ def run_replay(manifest: dict[str, Any], verbose: bool = False) -> dict[str, Any
                 "status": "PASS" if amb_lifecycle_ok else "FAIL",
                 "latency_seconds": round(time.perf_counter() - t0, 4),
                 "details": {
+                    "approved_draft_id": approved_draft_id,
                     "state_a_needs_review": amb_a_ok,
                     "state_b_ready_for_approval": amb_b_ok,
                     "state_c_approved": amb_c_ok,
@@ -1118,12 +1128,12 @@ def run_replay(manifest: dict[str, Any], verbose: bool = False) -> dict[str, Any
             print(f"  [REPLAY] ambiguous_apex: {case_results[-1]['status']}")
 
         # -----------------------------------------------------------------------
-        # DET-5: Terminal-State Immutability (Approved + Rejected)
+        # DET-5: Terminal-State Immutability (Approved + Rejected with DISTINCT IDs)
         # -----------------------------------------------------------------------
-        # Test Approved draft (ambiguous_apex draft_id)
-        det5_app_approve = client.post(f"/api/v1/drafts/{draft_id}/approve", json={"operator_id": "eval"})
-        det5_app_patch = client.patch(f"/api/v1/drafts/{draft_id}/lines/{line1_id}", json={"action": "SelectSKU", "matched_sku": "SKU-WRAP-18"})
-        det5_app_reject = client.post(f"/api/v1/drafts/{draft_id}/reject", json={"operator_id": "eval", "reason": "test"})
+        # 1. Test Approved draft (approved_draft_id)
+        det5_app_approve = client.post(f"/api/v1/drafts/{approved_draft_id}/approve", json={"operator_id": "eval"})
+        det5_app_patch = client.patch(f"/api/v1/drafts/{approved_draft_id}/lines/{approved_line_id}", json={"action": "SelectSKU", "matched_sku": "SKU-WRAP-18"})
+        det5_app_reject = client.post(f"/api/v1/drafts/{approved_draft_id}/reject", json={"operator_id": "eval", "reason": "test"})
 
         det5_approved_ok = (
             det5_app_approve.status_code == 409 and det5_app_approve.json().get("error") == "TerminalDraftConflictError"
@@ -1131,23 +1141,32 @@ def run_replay(manifest: dict[str, Any], verbose: bool = False) -> dict[str, Any
             and det5_app_reject.status_code == 409 and det5_app_reject.json().get("error") == "TerminalDraftConflictError"
         )
 
-        # Test Rejected draft (discrepancy_apex draft_id)
-        disc_draft_id = draft_id  # fallback
-        for c in case_results:
-            if c["case_id"] == "discrepancy_apex" and c.get("status") == "PASS":
-                disc_draft_id = draft["draft_id"]  # will be discrepancy_apex draft_id
+        # 2. Test Rejected draft (discrepancy_draft_id)
+        det5_rej_approve = client.post(f"/api/v1/drafts/{discrepancy_draft_id}/approve", json={"operator_id": "eval"})
+        det5_rej_patch = client.patch(f"/api/v1/drafts/{discrepancy_draft_id}/lines/{discrepancy_line_id}", json={"action": "SelectSKU", "matched_sku": "SKU-WRAP-18"})
+        det5_rej_reject = client.post(f"/api/v1/drafts/{discrepancy_draft_id}/reject", json={"operator_id": "eval", "reason": "test"})
 
-        det5_rej_approve = client.post(f"/api/v1/drafts/{disc_draft_id}/approve", json={"operator_id": "eval"})
         det5_rejected_ok = (
             det5_rej_approve.status_code == 409 and det5_rej_approve.json().get("error") == "TerminalDraftConflictError"
+            and det5_rej_patch.status_code == 409 and det5_rej_patch.json().get("error") == "TerminalDraftConflictError"
+            and det5_rej_reject.status_code == 409 and det5_rej_reject.json().get("error") == "TerminalDraftConflictError"
         )
 
-        det5_all_ok = (det5_approved_ok and det5_rejected_ok)
+        distinct_terminal_ids = (
+            approved_draft_id is not None
+            and discrepancy_draft_id is not None
+            and approved_draft_id != discrepancy_draft_id
+        )
+
+        det5_all_ok = (det5_approved_ok and det5_rejected_ok and distinct_terminal_ids)
         case_results.append({
             "case_id": "det5_terminal_immutability",
             "status": "PASS" if det5_all_ok else "FAIL",
             "latency_seconds": None,
             "details": {
+                "approved_draft_id": approved_draft_id,
+                "rejected_draft_id": discrepancy_draft_id,
+                "distinct_draft_ids_verified": distinct_terminal_ids,
                 "approved_draft_rejections_verified": det5_approved_ok,
                 "rejected_draft_rejections_verified": det5_rejected_ok,
                 "canonical_error": "TerminalDraftConflictError",
@@ -1158,37 +1177,65 @@ def run_replay(manifest: dict[str, Any], verbose: bool = False) -> dict[str, Any
             print(f"  [REPLAY] det5_terminal_immutability: {case_results[-1]['status']}")
 
         # -----------------------------------------------------------------------
-        # SC-006: Unextractable PDF Evaluation
+        # SC-006: Unextractable PDF Evaluation with Provider Invocation Instrumentation
         # -----------------------------------------------------------------------
-        unextractable_path = _REPO_ROOT / "tests" / "fixtures" / "po_unextractable.pdf"
-        drafts_count_before = session.query(OrderDraft).count()
+        from app.api.routes_orders import get_live_ai_provider
+        from app.services.ai_provider import OrderShieldAIProvider
 
-        pdf_bytes = unextractable_path.read_bytes()
-        pdf_resp = client.post(
-            "/api/v1/orders/ingest",
-            files={"file": (unextractable_path.name, pdf_bytes, "application/pdf")},
-        )
-        drafts_count_after = session.query(OrderDraft).count()
+        class _SpyAIProvider(OrderShieldAIProvider):
+            def __init__(self):
+                self.call_count = 0
+                self.provider_name = "spy-provider"
+                self.model_name = "spy-model"
+                self.is_replay_mode = False
 
-        sc006_unreadable_ok = (
-            pdf_resp.status_code == 400
-            and pdf_resp.json().get("error") == "UnextractableTextError"
-            and pdf_resp.json().get("message") == "PDF document contains no extractable textual content"
-        )
-        sc006_zero_persistence = (drafts_count_before == drafts_count_after)
-        sc006_zero_fallback = (pdf_resp.status_code == 400)  # no fallback to fixture or secondary
-        sc006_api_replay_flag = (replay_badge_count == replay_badge_total and replay_badge_total > 0)
+            def extract(self, *args, **kwargs):
+                self.call_count += 1
+                raise AssertionError("AI provider must not be called on unreadable document path")
+
+        spy_provider = _SpyAIProvider()
+        app_inst.dependency_overrides[get_live_ai_provider] = lambda: spy_provider
+
+        try:
+            unextractable_path = _REPO_ROOT / "tests" / "fixtures" / "po_unextractable.pdf"
+            drafts_count_before = session.query(OrderDraft).count()
+
+            pdf_bytes = unextractable_path.read_bytes()
+            pdf_resp = client.post(
+                "/api/v1/orders/ingest",
+                files={"file": (unextractable_path.name, pdf_bytes, "application/pdf")},
+            )
+            drafts_count_after = session.query(OrderDraft).count()
+
+            sc006_unreadable_ok = (
+                pdf_resp.status_code == 400
+                and pdf_resp.json().get("error") == "UnextractableTextError"
+                and pdf_resp.json().get("message") == "PDF document contains no extractable textual content"
+            )
+            sc006_provider_invocations = spy_provider.call_count
+            sc006_zero_persistence = (drafts_count_before == drafts_count_after)
+            sc006_no_fixture_sub = (pdf_resp.status_code == 400 and not pdf_resp.json().get("is_replay_mode"))
+
+            sc006_offline_verified = (
+                sc006_unreadable_ok
+                and sc006_provider_invocations == 0
+                and sc006_zero_persistence
+                and sc006_no_fixture_sub
+            )
+        finally:
+            app_inst.dependency_overrides.pop(get_live_ai_provider, None)
 
         case_results.append({
             "case_id": "unextractable_pdf",
-            "status": "PASS" if (sc006_unreadable_ok and sc006_zero_persistence) else "FAIL",
+            "status": "PASS" if sc006_offline_verified else "FAIL",
             "latency_seconds": None,
             "details": {
                 "http_status_code": pdf_resp.status_code,
                 "error": pdf_resp.json().get("error"),
                 "message": pdf_resp.json().get("message"),
-                "zero_partial_draft_persistence": sc006_zero_persistence,
-                "zero_fallback_verified": sc006_zero_fallback,
+                "provider_invocation_count": sc006_provider_invocations,
+                "draft_count_unchanged": sc006_zero_persistence,
+                "no_provider_invocation_and_no_fixture_substitution": sc006_offline_verified,
             },
         })
         if verbose:
@@ -1217,7 +1264,6 @@ def run_replay(manifest: dict[str, Any], verbose: bool = False) -> dict[str, Any
         "visible_replay_mode_badge_rate": replay_badge_rate,
     }
 
-    # SC-005 overall status
     sc005_status = "PASS" if (det4_ok and det5_all_ok) else "PARTIALLY_MEASURED" if det4_ok else "FAIL"
 
     sc_traceability = {
@@ -1227,7 +1273,7 @@ def run_replay(manifest: dict[str, Any], verbose: bool = False) -> dict[str, Any
             unit=None,
             auto_ms=None,
             notes=(
-                f"clean_acme 2-line ingestion and reconciliation completed in {round(clean_acme_duration_ms or 0, 2)} ms. "
+                f"clean_acme 2-line ingestion and reconciliation completed in {round(clean_acme_duration_ms or 0, 2)} ms (diagnostic). "
                 "Per SC-001 specification, automated_system_path_duration_ms remains null because no accepted "
                 "application replay extraction asset exists for canonical sc001_prepared_5line. "
                 "PASS/FAIL is strictly reserved for VLD-EVAL-03 assisted human timing."
@@ -1276,7 +1322,8 @@ def run_replay(manifest: dict[str, Any], verbose: bool = False) -> dict[str, Any
             notes=(
                 "DET-4: Unresolved-discrepancy approval attempt returned HTTP 409 DraftNotReadyForApprovalError, "
                 "created 0 VerifiedOrder records, and preserved Needs Review status. "
-                "DET-5: Mutation/re-transition attempts on Approved and Rejected drafts returned HTTP 409 TerminalDraftConflictError."
+                "DET-5: Mutation/re-transition attempts on Approved and Rejected drafts returned HTTP 409 TerminalDraftConflictError "
+                f"across distinct draft IDs (Approved: {approved_draft_id}, Rejected: {discrepancy_draft_id})."
             ),
         ),
         "SC_006": _sc_result(
@@ -1285,10 +1332,11 @@ def run_replay(manifest: dict[str, Any], verbose: bool = False) -> dict[str, Any
             value=None,
             unit=None,
             notes=(
-                "Offline REPLAY measured components: unreadable document failure (HTTP 400 UnextractableTextError = PASS), "
-                "zero partial draft persistence = PASS, zero fallback/failover = PASS, API replay flag = PASS (100%). "
-                "Live provider failure latency (<=5s), stalled timeout (<=15s), UI replay badge, and healthy live latency "
-                "require live/UI environment and remain unmeasured offline."
+                "Offline REPLAY verified: unreadable document failure returned HTTP 400 UnextractableTextError; "
+                f"provider invocation count == {sc006_provider_invocations}; draft count unchanged ({drafts_count_before} == {drafts_count_after}); "
+                "no provider invocation / no fixture substitution on unreadable document path. "
+                "Marked PARTIALLY_MEASURED: live provider failure latency (<=5s), stalled timeout (<=15s), "
+                "UI replay badge, and full live provider failover behavior cannot be empirically measured offline."
             ),
         ),
     }
@@ -1604,37 +1652,7 @@ def run_live(manifest: dict[str, Any], verbose: bool = False) -> dict[str, Any]:
 
     # Gated live implementation — exercises POST /api/v1/orders/ingest
     try:
-        from sqlalchemy import create_engine
-        from sqlalchemy import event as sa_event
-        from sqlalchemy.orm import sessionmaker
-        from sqlalchemy.pool import StaticPool
-        from fastapi.testclient import TestClient
-        from app.main import app
-        from app.database import Base, get_db
-        from app.cli import seed_baseline
-        import app.models.entities  # noqa: F401
-
-        engine = create_engine(
-            "sqlite:///:memory:",
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-        )
-
-        @sa_event.listens_for(engine, "connect")
-        def _fk(conn, _rec):
-            conn.execute("PRAGMA foreign_keys=ON")
-
-        Base.metadata.create_all(bind=engine)
-        factory = sessionmaker(bind=engine)
-        session = factory()
-        seed_baseline(session)
-        session.commit()
-
-        def _get_db_override():
-            yield session
-
-        app.dependency_overrides[get_db] = _get_db_override
-        client = TestClient(app, raise_server_exceptions=False)
+        client, session, engine, app_inst, get_db_fn = _make_eval_client()
 
         try:
             clean_acme_path = _REPO_ROOT / "tests" / "fixtures" / "po_clean_acme.txt"
@@ -1653,10 +1671,7 @@ def run_live(manifest: dict[str, Any], verbose: bool = False) -> dict[str, Any]:
             }]
 
         finally:
-            app.dependency_overrides.pop(get_db, None)
-            session.close()
-            Base.metadata.drop_all(bind=engine)
-            engine.dispose()
+            _cleanup_eval_client(app_inst, get_db_fn, session, engine)
 
         return {
             "case_results": case_results,
@@ -1676,10 +1691,15 @@ def run_live(manifest: dict[str, Any], verbose: bool = False) -> dict[str, Any]:
             },
             "sc_traceability": {
                 "SC_001": _sc_partially_measured(
-                    "operator_e2e_completion_seconds", round(elapsed_ms, 2), "milliseconds",
-                    f"LIVE ingest of clean_acme via {provider_name}/{model_name}. "
-                    "PASS/FAIL requires VLD-EVAL-03 human timing.",
-                    auto_ms=round(elapsed_ms, 2),
+                    metric_name="operator_e2e_completion_seconds",
+                    value=None,
+                    unit=None,
+                    notes=(
+                        f"clean_acme 2-line LIVE ingest latency is {round(elapsed_ms, 2)} ms (preserved as diagnostic app/live AI latency). "
+                        "Per SC-001 specification, automated_system_path_duration_ms remains null because SC-001 can receive automated "
+                        "timing only from the canonical sc001_prepared_5line scenario. PASS/FAIL strictly reserved for VLD-EVAL-03 human timing."
+                    ),
+                    auto_ms=None,
                 ),
                 "SC_002": _sc_not_measured("discrepancy_detection_accuracy", "LIVE measures AI extraction, not discrepancy detection."),
                 "SC_003": _sc_not_measured("operator_sku_resolution_completion", "LIVE measures AI extraction."),
@@ -1699,6 +1719,77 @@ def run_live(manifest: dict[str, Any], verbose: bool = False) -> dict[str, Any]:
 # ===========================================================================
 # ALL mode
 # ===========================================================================
+
+def _compute_combined_sc003(hb_metrics: dict[str, Any], rep_cases: list[dict[str, Any]]) -> dict[str, Any]:
+    """Compute combined SC-003 from actual evidence — never hardcoded.
+
+    PASS iff:
+    - historical AI-5 review-routing numerator == denominator and denominator > 0
+    - historical AI-6 wrong-confident count == 0
+    - current-app ambiguous lifecycle evidence succeeded (ambiguous_apex PASS)
+
+    FAIL if a measured normative component fails.
+    PARTIALLY_MEASURED if required evidence is absent/incomplete.
+    """
+    provider_name = hb_metrics.get("provider", "Alibaba Model Studio (Singapore)")
+    model_name = hb_metrics.get("model", "qwen3.8-flash")
+    review_trap = hb_metrics.get("review_trap_catch_rate", {})
+    ai5_num = review_trap.get("numerator")
+    ai5_denom = review_trap.get("denominator")
+    ai5_pct = review_trap.get("rate_percentage")
+    wrong_sku_info = hb_metrics.get("wrong_confident_skus", {})
+    wrong_count = wrong_sku_info.get("count")
+
+    amb_case = next((c for c in rep_cases if c.get("case_id") == "ambiguous_apex"), None)
+    amb_ok = (amb_case is not None and amb_case.get("status") == "PASS")
+
+    if ai5_num is None or ai5_denom is None or wrong_count is None or amb_case is None:
+        status = "PARTIALLY_MEASURED"
+        val = None
+        unit = None
+        notes = "Required SC-003 evidence is absent or incomplete across evaluation modes."
+    elif (ai5_denom > 0 and ai5_num != ai5_denom) or (wrong_count is not None and wrong_count > 0) or not amb_ok:
+        status = "FAIL"
+        val = 0.0
+        unit = "percent"
+        fail_reasons = []
+        if ai5_denom is not None and ai5_denom > 0 and ai5_num != ai5_denom:
+            fail_reasons.append(f"AI-5 review routing failed ({ai5_num}/{ai5_denom})")
+        if wrong_count is not None and wrong_count > 0:
+            fail_reasons.append(f"AI-6 wrong-confident count > 0 ({wrong_count})")
+        if not amb_ok:
+            fail_reasons.append(f"current-app ambiguous_apex status = {amb_case.get('status') if amb_case else 'MISSING'}")
+        notes = (
+            f"Normative SC-003 component failed: {'; '.join(fail_reasons)}. "
+            f"[Historical AI boundary - {provider_name} {model_name}]: AI-5 review routing = {ai5_num}/{ai5_denom}, "
+            f"AI-6 wrong-confident count = {wrong_count}. "
+            f"[Current-app reconciliation]: ambiguous_apex status = {amb_case.get('status') if amb_case else 'MISSING'}."
+        )
+    elif ai5_num == ai5_denom and ai5_denom > 0 and wrong_count == 0 and amb_ok:
+        status = "PASS"
+        val = ai5_pct if ai5_pct is not None else 100.0
+        unit = "percent"
+        notes = (
+            f"Combined evidence with explicit attribution: "
+            f"[Historical AI boundary - {provider_name} {model_name}]: AI-5 review-routing rate = {ai5_num}/{ai5_denom} ({ai5_pct}%), "
+            f"AI-6 wrong-confident SKU count = {wrong_count} across approved trap corpus. "
+            f"[Current-app reconciliation]: ambiguous_apex correctly generated CatalogMatchingMismatch, "
+            f"routed to Needs Review, and successfully transitioned to Ready for Approval upon operator SelectSKU."
+        )
+    else:
+        status = "PARTIALLY_MEASURED"
+        val = None
+        unit = None
+        notes = "SC-003 evidence partially evaluated."
+
+    return _sc_result(
+        metric_name="operator_sku_resolution_completion",
+        status=status,
+        value=val,
+        unit=unit,
+        notes=notes,
+    )
+
 
 def run_all(manifest: dict[str, Any], verbose: bool = False) -> dict[str, Any]:
     """Run DETERMINISTIC + REPLAY + HISTORICAL_BAKEOFF. LIVE only if explicitly enabled."""
@@ -1728,21 +1819,9 @@ def run_all(manifest: dict[str, Any], verbose: bool = False) -> dict[str, Any]:
         sc_sources.append(live_payload["sc_traceability"])
     combined_sc = _merge_sc_traceability(sc_sources)
 
-    # For SC-003 in ALL mode: combine historical AI-boundary and current-app reconciliation
-    # with explicit attribution, satisfying the requirement to combine evidence
-    combined_sc["SC_003"] = _sc_result(
-        metric_name="operator_sku_resolution_completion",
-        status="PASS",
-        value=100.0,
-        unit="percent",
-        notes=(
-            "Combined evidence with explicit attribution: "
-            "[Historical AI boundary - Alibaba Qwen qwen3.8-flash]: AI-5 review-routing rate = 3/3 (100.0%), "
-            "AI-6 wrong-confident SKU count = 0 (0.0%) across approved trap corpus. "
-            "[Current-app reconciliation]: ambiguous_apex correctly generated CatalogMatchingMismatch, "
-            "routed to Needs Review, and successfully transitioned to Ready for Approval upon operator SelectSKU."
-        ),
-    )
+    # For SC-003 in ALL mode: compute dynamically from actual evidence
+    hb_metrics = hb.get("ai_metrics", {}).get("historical_bakeoff_metrics", {})
+    combined_sc["SC_003"] = _compute_combined_sc003(hb_metrics, rep.get("case_results", []))
 
     # Deterministic metrics: merge rules from DETERMINISTIC, gate/terminal from REPLAY
     combined_det = dict(det["deterministic_metrics"])
@@ -1793,17 +1872,13 @@ def _merge_sc_traceability(sc_lists: list[dict[str, Any]]) -> dict[str, Any]:
                 if new_rank > curr_rank:
                     merged[key] = dict(entry)
                 elif new_rank == curr_rank:
-                    # Equal status: preserve richer evidence
-                    # 1. Prefer non-null automated_system_path_duration_ms
                     if existing.get("automated_system_path_duration_ms") is None and entry.get("automated_system_path_duration_ms") is not None:
                         existing["automated_system_path_duration_ms"] = entry["automated_system_path_duration_ms"]
 
-                    # 2. Prefer non-null value
                     if existing.get("value") is None and entry.get("value") is not None:
                         existing["value"] = entry["value"]
                         existing["unit"] = entry.get("unit")
 
-                    # 3. Prefer longer, richer notes
                     if len(entry.get("notes", "")) > len(existing.get("notes", "")):
                         existing["notes"] = entry["notes"]
 

@@ -37,6 +37,7 @@ import pytest
 
 from app.evaluation.runner import (
     VALID_MODES,
+    _compute_combined_sc003,
     _current_git_commit,
     _empty_result_with_note,
     _find_primary_candidate,
@@ -334,11 +335,35 @@ def test_replay_measures_sc005_det4_and_det5(manifest):
     assert sc005["value"] == "100.0"
 
 
+def test_det5_approved_and_rejected_draft_ids_are_distinct(manifest):
+    """DET-5: Prove approved and rejected draft IDs are distinct and both terminal states are exercised."""
+    payload = run_replay(manifest)
+    det5_case = next(c for c in payload["case_results"] if c["case_id"] == "det5_terminal_immutability")
+    assert det5_case["status"] == "PASS"
+    details = det5_case["details"]
+    assert details["approved_draft_id"] != details["rejected_draft_id"]
+    assert details["approved_draft_id"] is not None
+    assert details["rejected_draft_id"] is not None
+    assert details["distinct_draft_ids_verified"] is True
+    assert details["approved_draft_rejections_verified"] is True
+    assert details["rejected_draft_rejections_verified"] is True
+    assert details["canonical_status_code"] == 409
+    assert details["canonical_error"] == "TerminalDraftConflictError"
+
+
 def test_replay_measures_sc006_partially_measured(manifest):
-    """SC-006: Offline REPLAY returns PARTIALLY_MEASURED (live components require live run)."""
+    """SC-006: Offline REPLAY returns PARTIALLY_MEASURED, proves zero provider calls, zero persistence, HTTP 400."""
     payload = run_replay(manifest)
     sc006 = payload["sc_traceability"]["SC_006"]
     assert sc006["status"] == "PARTIALLY_MEASURED"
+    unext_case = next(c for c in payload["case_results"] if c["case_id"] == "unextractable_pdf")
+    assert unext_case["status"] == "PASS"
+    details = unext_case["details"]
+    assert details["provider_invocation_count"] == 0
+    assert details["http_status_code"] == 400
+    assert details["error"] == "UnextractableTextError"
+    assert details["draft_count_unchanged"] is True
+    assert details["no_provider_invocation_and_no_fixture_substitution"] is True
 
 
 def test_replay_verifies_is_replay_mode_badge(manifest):
@@ -422,6 +447,23 @@ def test_live_mode_blocked_without_env_var(manifest):
     assert payload["provider_config"]["model"] is not None
 
 
+def test_live_sc001_automated_duration_null_per_spec(manifest):
+    """LIVE SC-001: automated_system_path_duration_ms must be null (clean_acme 2-line latency is diagnostic only)."""
+    from app.models.schemas import AIExtractionPayload
+
+    fixture_path = REPO_ROOT / "app" / "fixtures" / "clean_acme.json"
+    clean_acme_data = json.loads(fixture_path.read_text(encoding="utf-8"))
+    clean_payload = AIExtractionPayload.model_validate(clean_acme_data["extraction"])
+
+    with patch.dict("os.environ", {"LIVE_EVALUATION_ENABLED": "true"}, clear=False), \
+         patch("app.services.ai_provider.LiveAIProvider.extract", return_value=clean_payload):
+        payload = run_live(manifest)
+    sc001 = payload["sc_traceability"]["SC_001"]
+    assert sc001["status"] == "PARTIALLY_MEASURED"
+    assert sc001["automated_system_path_duration_ms"] is None
+    assert "clean_acme 2-line LIVE ingest latency is" in sc001["notes"]
+
+
 # ---------------------------------------------------------------------------
 # ALL Mode Tests (Precedence & Merge Semantics)
 # ---------------------------------------------------------------------------
@@ -464,6 +506,78 @@ def test_run_all_result_schema_valid(manifest):
         "git_commit": "abc1234",
     })
     assert_schema_valid(payload)
+
+
+# ---------------------------------------------------------------------------
+# Dynamic SC-003 Computation Tests (ALL Mode)
+# ---------------------------------------------------------------------------
+
+def test_sc003_complete_evidence_produces_pass():
+    hb_metrics = {
+        "provider": "Alibaba Model Studio (Singapore)",
+        "model": "qwen3.8-flash",
+        "review_trap_catch_rate": {"numerator": 3, "denominator": 3, "rate_percentage": 100.0},
+        "wrong_confident_skus": {"count": 0},
+    }
+    rep_cases = [{"case_id": "ambiguous_apex", "status": "PASS"}]
+    res = _compute_combined_sc003(hb_metrics, rep_cases)
+    assert res["status"] == "PASS"
+    assert res["value"] == 100.0
+    assert "Alibaba Model Studio" in res["notes"]
+    assert "3/3" in res["notes"]
+
+
+def test_sc003_historical_trap_failure_prevents_pass():
+    hb_metrics = {
+        "provider": "Alibaba Model Studio (Singapore)",
+        "model": "qwen3.8-flash",
+        "review_trap_catch_rate": {"numerator": 2, "denominator": 3, "rate_percentage": 66.7},
+        "wrong_confident_skus": {"count": 0},
+    }
+    rep_cases = [{"case_id": "ambiguous_apex", "status": "PASS"}]
+    res = _compute_combined_sc003(hb_metrics, rep_cases)
+    assert res["status"] == "FAIL"
+    assert res["value"] == 0.0
+    assert "AI-5 review routing failed" in res["notes"]
+
+
+def test_sc003_wrong_confident_prevents_pass():
+    hb_metrics = {
+        "provider": "Alibaba Model Studio (Singapore)",
+        "model": "qwen3.8-flash",
+        "review_trap_catch_rate": {"numerator": 3, "denominator": 3, "rate_percentage": 100.0},
+        "wrong_confident_skus": {"count": 1},
+    }
+    rep_cases = [{"case_id": "ambiguous_apex", "status": "PASS"}]
+    res = _compute_combined_sc003(hb_metrics, rep_cases)
+    assert res["status"] == "FAIL"
+    assert res["value"] == 0.0
+    assert "AI-6 wrong-confident count > 0" in res["notes"]
+
+
+def test_sc003_app_lifecycle_failure_prevents_pass():
+    hb_metrics = {
+        "provider": "Alibaba Model Studio (Singapore)",
+        "model": "qwen3.8-flash",
+        "review_trap_catch_rate": {"numerator": 3, "denominator": 3, "rate_percentage": 100.0},
+        "wrong_confident_skus": {"count": 0},
+    }
+    rep_cases = [{"case_id": "ambiguous_apex", "status": "FAIL"}]
+    res = _compute_combined_sc003(hb_metrics, rep_cases)
+    assert res["status"] == "FAIL"
+    assert res["value"] == 0.0
+    assert "ambiguous_apex status = FAIL" in res["notes"]
+
+
+def test_sc003_missing_evidence_yields_partially_measured():
+    res1 = _compute_combined_sc003({}, [{"case_id": "ambiguous_apex", "status": "PASS"}])
+    assert res1["status"] == "PARTIALLY_MEASURED"
+
+    res2 = _compute_combined_sc003(
+        {"review_trap_catch_rate": {"numerator": 3, "denominator": 3}},
+        [],
+    )
+    assert res2["status"] == "PARTIALLY_MEASURED"
 
 
 # ---------------------------------------------------------------------------
