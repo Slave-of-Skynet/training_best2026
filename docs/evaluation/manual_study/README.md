@@ -54,7 +54,7 @@ docs/evaluation/manual_study/
 > Participant distribution packages must contain **ONLY**:
 > 1. English execution: Files from [`participant_packet/`](./participant_packet/) (`participant_instructions.md`, `catalog_sheet.md`, `contract_pricing_sheet.md`, `reconciliation_template.md`).
 > 2. Russian-speaking execution: Distribute **ONLY** files from [`participant_packet_ru/`](./participant_packet_ru/) (`participant_instructions_ru.md`, `catalog_sheet_ru.md`, `contract_pricing_sheet_ru.md`, `reconciliation_template_ru.md`). Do not distribute `participant_packet` and `participant_packet_ru` together unless explicitly needed.
-> 3. The single purchase order text file currently being executed (Case A, then Case B, then Case C).
+> 3. The single purchase order text file currently being executed (Case A, then Case B, then Case C), provided under a neutral display filename (`Заказ_A.txt` / `Case_A.txt`, `Заказ_B.txt` / `Case_B.txt`, `Заказ_C.txt` / `Case_C.txt`). Never expose semantic canonical filenames (`po_discrepancy_apex.txt`, `po_ambiguous_apex.txt`) to participants.
 >
 > All materials under [`observer_only/`](./observer_only/) containing ground-truth answers, discrepancy keys, scoring criteria, and observer checklists must remain strictly confidential and inaccessible to participants.
 
