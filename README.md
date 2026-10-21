@@ -1,10 +1,73 @@
 # OrderShield
 
-OrderShield is an intelligent purchase-order reconciliation system designed to automate wholesale document intake, eliminate commercial order discrepancies, and maintain strict human-in-the-loop governance.
+A team-built purchase-order reconciliation MVP: AI extracts document fields and candidate
+SKUs, deterministic code checks catalog and customer-contract rules, and an operator
+resolves discrepancies before approving or rejecting the order. **AI cannot approve orders.**
 
-Customer purchase orders (.txt and .pdf) are ingested, extracted, and deterministically validated against master catalog rules and negotiated customer contract pricing tiers. Discrepancies are flagged for human review, and only clean, operator-resolved orders can transition to immutable approved records with comprehensive audit trails and document-grounded provenance.
+Built with **Python, FastAPI, Pydantic, SQLAlchemy/SQLite, and a vanilla JavaScript UI**.
+This is a local application with implemented live-provider adapters and an explicit offline
+replay path; it is not a claimed production deployment.
 
----
+[Try replay locally](#try-the-replay-demo) · [Engineering case study](docs/portfolio.md) · [Architecture and trust model](#architecture--trust-model) · [Evaluation evidence](#evaluation-evidence)
+
+## Try the replay demo
+
+From a fresh checkout with Python 3.11+, PowerShell:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python -m pip install -r requirements.lock
+.\.venv\Scripts\python -m app.cli init-db --seed
+.\.venv\Scripts\python -m uvicorn app.main:app
+```
+
+Open [localhost:8000](http://127.0.0.1:8000/). In **Demo / replay fixtures**, select a
+registered fixture and click **Ingest selected fixture (replay)**. No AI credentials
+are needed. Keep the seeded demo database disposable; [installation](#installation)
+contains POSIX activation and detailed setup instructions.
+
+| Mode | Extraction source | Credentials and failure behavior |
+| --- | --- | --- |
+| Replay | Committed synthetic documents and recorded extraction payloads; real local reconciliation/lifecycle | No provider key or inference. Always labelled replay. |
+| Live | One call to the selected Qwen or Gemini adapter | Requires `LLM_API_KEY`; Qwen also requires `QWEN_BASE_URL`. Configuration/transport failure returns 503, invalid AI output 502; no provider or fixture failover. |
+
+### Replay preview
+
+<img src="docs/images/ordershield-replay.webp" alt="OrderShield synthetic replay with a visible non-live banner, Needs Review status, price mismatch and ambiguous SKU" width="880">
+
+Captured locally on 22 October 2026 from the committed synthetic Apex fixture.
+[Capture provenance](docs/images/README.md). This is not newly generated LLM output.
+
+## Engineering highlights
+
+- **Governed extraction:** provider identity, strict schemas, and exact document citations.
+- **Deterministic commercial rules:** contract tiers, integer-cent arithmetic, MOQ and packaging checks.
+- **Grounded operator actions:** corrections and SKU resolution re-evaluate discrepancies; approval remains explicit.
+- **Inspectable evidence:** persisted provenance/audit events and separate deterministic, replay, historical, and opt-in live evaluation modes.
+
+## Team contributions
+
+| Contributor | Role and representative merged work |
+| --- | --- |
+| **Vladimir Barbalat** ([@barbalatv](https://github.com/barbalatv)) | **Team Lead / Backend & AI Integration / Verification**. Provider/backend integration [#16](https://github.com/Slave-of-Skynet/training_best2026/pull/16), discrepancy engine [#22](https://github.com/Slave-of-Skynet/training_best2026/pull/22), mutation routes [#29](https://github.com/Slave-of-Skynet/training_best2026/pull/29), evaluation runner [#48](https://github.com/Slave-of-Skynet/training_best2026/pull/48). |
+| **@arseniistrokov** ([@arseniistrokov](https://github.com/arseniistrokov)) | SPA workspace [#17](https://github.com/Slave-of-Skynet/training_best2026/pull/17), grounded correction/removal [#27](https://github.com/Slave-of-Skynet/training_best2026/pull/27), provenance UI wiring [#33](https://github.com/Slave-of-Skynet/training_best2026/pull/33). |
+| **@vicuvi1** ([@vicuvi1](https://github.com/vicuvi1)) | Bootstrap [#2](https://github.com/Slave-of-Skynet/training_best2026/pull/2), catalog API [#21](https://github.com/Slave-of-Skynet/training_best2026/pull/21), approved-order audit retrieval [#23](https://github.com/Slave-of-Skynet/training_best2026/pull/23). |
+| **@tikotto** ([@tikotto](https://github.com/tikotto)) | Runtime/environment configuration [#4](https://github.com/Slave-of-Skynet/training_best2026/pull/4). |
+| **Mr-Ressentiment** ([@Mr-Ressentiment](https://github.com/Mr-Ressentiment)) | Test harness and synthetic fixtures [#3](https://github.com/Slave-of-Skynet/training_best2026/pull/3). |
+
+Team leadership is supplied by the project owner; implementation references are repository
+evidence. Final integration [#37](https://github.com/Slave-of-Skynet/training_best2026/pull/37)
+combines multiple contributors' commits and does not imply sole authorship.
+
+## Evaluation evidence
+
+The [case study](docs/portfolio.md#testing-and-evaluation-methodology) explains the
+[protocol](docs/evaluation/protocol.md), [runner](app/evaluation/runner.py), and
+[committed 2 October results](docs/evaluation/results/20261002-001259-ALL.json).
+Historical provider measurements, recorded replay, and deterministic fixture checks
+have different denominators. The aggregate retains failures and marks SC-001 and
+SC-006 partially measured. No general model-accuracy or human-time-saved claim is made;
+manual-study preparation is not a completed participant study.
 
 ## What it does
 
@@ -278,7 +341,7 @@ For reliable demonstrations, evaluation, and environments without active AI prov
    python -m uvicorn app.main:app
    ```
 2. Open `http://127.0.0.1:8000/static/index.html`.
-3. In the **Replay & demo datasets** panel, select one of the registered fixtures.
+3. In the **Demo / replay fixtures** panel, select one of the registered fixtures.
 
 Alternatively, trigger replay ingestion via `curl`:
 
@@ -334,7 +397,7 @@ Execute the full test suite using `pytest`:
 pytest -v
 ```
 
-> Current test baseline: **736 passing tests**.
+> Test counts change with the repository. Consult the current CI run; historical test passes are not live-model accuracy or production acceptance.
 
 ### End-to-End Quickstart Integration Scenarios
 Run the dedicated scenario verification suite covering happy path, discrepancy resolution, provider failure semantics, replay isolation, and audit trail inspection:
@@ -403,5 +466,5 @@ specs/001-ordershield-po-reconciliation/
 2. **Single-Process Architecture**: Built for local evaluation and hackathon demonstration. Distributed background worker queues, horizontal scaling, and clustered databases are out of MVP scope.
 3. **No Automatic AI Failover**: Designed as a governance safeguard. AI provider errors return explicit HTTP 503 diagnostics rather than masking failures with fallback providers or silent mock data.
 4. **Rejected-Draft Audit Inspection**: While `DraftRejected` audit events are persisted in the database upon order rejection, the public retrieval endpoint `GET /api/v1/orders/{order_id}` is scoped specifically to approved verified orders (`HG-P3-AUDIT-01`). There is currently no dedicated REST endpoint for inspecting rejected draft audit trails.
-5. **Static SPA Routing**: The user interface is mounted at `/static/index.html`. No root `/` redirect or server-rendered order detail routes exist.
+5. **Static SPA Routing**: `GET /` redirects to `/static/index.html` with HTTP 307. There are no server-rendered individual-order HTML routes.
 6. **Authentication & Authorization**: Operator identity is supplied as an identifier string (e.g. `operator_id`); enterprise authentication, OAuth/SAML, and RBAC are outside current MVP scope.
